@@ -13,11 +13,11 @@ def validate_phone(phone):
 # Стартовое сообщение
 def start(update: Update, context: CallbackContext):
     # Инициализация базы данных при первом вызове
-    try:
-        init_db()
-    except Exception as e:
-        update.message.reply_text(f"Ошибка подключения к базе данных: {e}")
-        return
+    # try:
+    #     init_db()
+    # except Exception as e:
+    #     update.message.reply_text(f"Ошибка подключения к базе данных: {e}")
+    #     return
     
     keyboard = [
         ["Записаться"],
@@ -154,7 +154,7 @@ def main():
     dp = updater.dispatcher
 
     dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("?admin", admin))
+    dp.add_handler(CommandHandler("admin", admin))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, message_handler))
     dp.add_handler(CallbackQueryHandler(button_handler))
 
