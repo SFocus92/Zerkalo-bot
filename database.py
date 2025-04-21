@@ -1,22 +1,34 @@
 import psycopg2
 from config import DATABASE_URL
 from datetime import datetime, timedelta
+import time
 
 def init_db():
-    conn = psycopg2.connect(DATABASE_URL)
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS appointments (
-            id SERIAL PRIMARY KEY,
-            client_name VARCHAR(100),
-            client_phone VARCHAR(20),
-            appointment_time TIMESTAMP,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-    """)
-    conn.commit()
-    cursor.close()
-    conn.close()
+    attempts = 5
+    for attempt in range(attempts):
+        try:
+            conn = psycopg2.connect(DATABASE_URL)
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS appointments (
+                    id SERIAL PRIMARY KEY,
+                    client_name VARCHAR(100),
+                    client_phone VARCHAR(20),
+                    appointment_time TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+            conn.commit()
+            cursor.close()
+            conn.close()
+            print("Database initialized successfully")
+            return
+        except psycopg2.OperationalError as e:
+            print(f"Database connection attempt {attempt + 1} failed: {e}")
+            if attempt < attempts - 1:
+                time.sleep(5)  # Ждем 5 секунд перед повторной попыткой
+            else:
+                raise Exception("Failed to connect to database after multiple attempts")
 
 def add_appointment(name, phone, appointment_time):
     conn = psycopg2.connect(DATABASE_URL)

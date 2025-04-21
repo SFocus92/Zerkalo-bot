@@ -5,16 +5,20 @@ from database import init_db, add_appointment, is_slot_taken, cancel_appointment
 from datetime import datetime, timedelta
 import re
 
-# Инициализация базы данных
-init_db()
-
-# Валидация номера телефона (пример: +7, 8, или 10 цифр)
+# Валидация номера телефона
 def validate_phone(phone):
     pattern = r'^(\+7|8)\d{10}$'
     return re.match(pattern, phone) is not None
 
 # Стартовое сообщение
 def start(update: Update, context: CallbackContext):
+    # Инициализация базы данных при первом вызове
+    try:
+        init_db()
+    except Exception as e:
+        update.message.reply_text(f"Ошибка подключения к базе данных: {e}")
+        return
+    
     keyboard = [
         ["Записаться"],
         ["Отменить запись"]
