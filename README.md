@@ -12,4 +12,4 @@
 1. **Клонируйте репозиторий**:
    ```bash
    git clone <your-repo-url>
-   cd bot
+   cd bot"# Zerkalo-bot" 
