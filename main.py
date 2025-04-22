@@ -5,6 +5,11 @@ from database import init_db, add_appointment, is_slot_taken, cancel_appointment
 from datetime import datetime, timedelta
 import re
 import calendar
+import logging
+
+# Настройка логирования
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Валидация номера телефона
 def validate_phone(phone):
@@ -36,6 +41,7 @@ def start(update: Update, context: CallbackContext):
     try:
         init_db()
     except Exception as e:
+        logger.error(f"Database init error: {e}")
         update.message.reply_text(f"Ошибка подключения к базе данных: {e}")
         return
     
@@ -89,7 +95,11 @@ def message_handler(update: Update, context: CallbackContext):
             return
         context.user_data["phone"] = text
         appointment_time = context.user_data["appointment_time"]
-        master = context.user_data["master"]
+        master = context.user_data.get("master")
+        if not master:
+            logger.error("Master not set in user_data")
+            update.message.reply_text("Ошибка: мастер не выбран. Пожалуйста, начните заново.")
+            return
         add_appointment(context.user_data["name"], text, appointment_time, master)
         update.message.reply_text(
             f"Запись успешно создана!\nИмя: {context.user_data['name']}\nТелефон: {text}\nМастер: {master}\nВремя: {appointment_time.strftime('%Y-%m-%d %H:%M')}"
@@ -111,10 +121,14 @@ def show_months(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
     master = query.data.split("_")[1] if query.data.startswith("master_") else context.user_data.get("master")
+    if not master:
+        logger.error("Master not set in show_months")
+        query.message.reply_text("Ошибка: мастер не выбран. Пожалуйста, начните заново.")
+        return
     context.user_data["master"] = master
     today = datetime.now()
     keyboard = []
-    for i in range(12):  # 12 месяцев вперед
+    for i in range(12):
         month_date = today + timedelta(days=30*i)
         year = month_date.year
         month = month_date.month
@@ -131,7 +145,12 @@ def show_months(update: Update, context: CallbackContext):
 def show_days_in_month(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
-    year, month = map(int, query.data.split("_")[1].split("-"))
+    try:
+        year, month = map(int, query.data.split("_")[1].split("-"))
+    except ValueError as e:
+        logger.error(f"Error parsing month data: {query.data}, error: {e}")
+        query.message.reply_text("Ошибка при выборе месяца. Пожалуйста, начните заново.")
+        return
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     _, last_day = calendar.monthrange(year, month)
     keyboard = []
@@ -160,19 +179,35 @@ def show_days_in_month(update: Update, context: CallbackContext):
 def show_times(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
-    day_str = query.data.split("_")[1]
-    selected_day = datetime.strptime(day_str, "%Y-%m-%d")
-    master = context.user_data["master"]
+    master = context.user_data.get("master")
+    if not master:
+        logger.error("Master not set in show_times")
+        query.message.reply_text("Ошибка: мастер не выбран. Пожалуйста, начните заново.")
+        return
+    try:
+        day_str = query.data.split("_")[1]
+        selected_day = datetime.strptime(day_str, "%Y-%m-%d")
+    except (IndexError, ValueError) as e:
+        logger.error(f"Error parsing day data: {query.data}, error: {e}")
+        query.message.reply_text("Ошибка при выборе дня. Пожалуйста, начните заново.")
+        return
+    
     keyboard = []
     current_time = datetime.now()
     
     for hour in range(9, 21):
         slot_time = selected_day.replace(hour=hour, minute=0)
-        if slot_time > current_time and not is_slot_taken(slot_time, master):
-            keyboard.append([InlineKeyboardButton(
-                f"{hour}:00", 
-                callback_data=f"time_{slot_time.strftime('%Y-%m-%d %H:%M')}"
-            )])
+        if slot_time > current_time:
+            try:
+                if not is_slot_taken(slot_time, master):
+                    keyboard.append([InlineKeyboardButton(
+                        f"{hour}:00", 
+                        callback_data=f"time_{slot_time.strftime('%Y-%m-%d %H:%M')}"
+                    )])
+            except Exception as e:
+                logger.error(f"Error checking slot for {slot_time}, master {master}: {e}")
+                query.message.reply_text("Ошибка при проверке доступных слотов. Попробуйте снова.")
+                return
     
     if not keyboard:
         query.message.reply_text("Нет доступных слотов на этот день. Выберите другой день.")
@@ -186,8 +221,13 @@ def show_times(update: Update, context: CallbackContext):
 def confirm_time(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
-    time_str = query.data.split("_")[1]
-    context.user_data["appointment_time"] = datetime.strptime(time_str, "%Y-%m-%d %H:%M")
+    try:
+        time_str = query.data.split("_")[1]
+        context.user_data["appointment_time"] = datetime.strptime(time_str, "%Y-%m-%d %H:%M")
+    except (IndexError, ValueError) as e:
+        logger.error(f"Error parsing time data: {query.data}, error: {e}")
+        query.message.reply_text("Ошибка при выборе времени. Пожалуйста, начните заново.")
+        return
     context.user_data["action"] = "name"
     query.message.reply_text("Введите ваше имя:")
 
@@ -210,26 +250,36 @@ def show_admin_menu(update: Update, context: CallbackContext):
 # Обработка inline-кнопок
 def button_handler(update: Update, context: CallbackContext):
     query = update.callback_query
-    if query.data.startswith("master_"):
-        show_months(update, context)
-    elif query.data.startswith("month_"):
-        show_days_in_month(update, context)
-    elif query.data.startswith("day_"):
-        show_times(update, context)
-    elif query.data.startswith("time_"):
-        confirm_time(update, context)
+    try:
+        if query.data.startswith("master_"):
+            show_months(update, context)
+        elif query.data.startswith("month_"):
+            show_days_in_month(update, context)
+        elif query.data.startswith("day_"):
+            show_times(update, context)
+        elif query.data.startswith("time_"):
+            confirm_time(update, context)
+        else:
+            logger.error(f"Unknown callback data: {query.data}")
+            query.message.reply_text("Ошибка: неизвестное действие. Пожалуйста, начните заново.")
+    except Exception as e:
+        logger.error(f"Error in button_handler: {e}")
+        query.message.reply_text("Произошла ошибка. Пожалуйста, начните заново.")
 
 def main():
-    updater = Updater(BOT_TOKEN, use_context=True)
-    dp = updater.dispatcher
+    try:
+        updater = Updater(BOT_TOKEN, use_context=True)
+        dp = updater.dispatcher
 
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("admin", admin))
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, message_handler))
-    dp.add_handler(CallbackQueryHandler(button_handler))
+        dp.add_handler(CommandHandler("start", start))
+        dp.add_handler(CommandHandler("admin", admin))
+        dp.add_handler(MessageHandler(Filters.text & ~Filters.command, message_handler))
+        dp.add_handler(CallbackQueryHandler(button_handler))
 
-    updater.start_polling()
-    updater.idle()
+        updater.start_polling()
+        updater.idle()
+    except Exception as e:
+        logger.error(f"Error in main: {e}")
 
 if __name__ == "__main__":
     main()
