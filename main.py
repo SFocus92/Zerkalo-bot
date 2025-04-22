@@ -36,6 +36,9 @@ MONTH_RU = {
 # Список мастеров
 MASTERS = ['Наташа', 'Ваня']
 
+# Telegram username для Наташи
+NATASHA_USERNAME = '@Natalii_andreevna'
+
 # Стартовое сообщение
 def start(update: Update, context: CallbackContext):
     try:
@@ -76,6 +79,15 @@ def message_handler(update: Update, context: CallbackContext):
                 OWNER_CHAT_ID, 
                 f"Клиент {client_name} ({phone}) отменил запись у мастера {master}."
             )
+            # Уведомление мастеру при отмене
+            if master == 'Наташа':
+                try:
+                    context.bot.send_message(
+                        NATASHA_USERNAME,
+                        f"Клиент {client_name} ({phone}) отменил запись."
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to notify Natasha: {e}")
         else:
             update.message.reply_text("Запись с таким номером не найдена.")
         context.user_data.clear()
@@ -109,6 +121,15 @@ def message_handler(update: Update, context: CallbackContext):
                 OWNER_CHAT_ID,
                 f"Новая запись:\nИмя: {context.user_data['name']}\nТелефон: {text}\nМастер: {master}\nВремя: {appointment_time.strftime('%Y-%m-%d %H:%M')}"
             )
+            # Уведомление Наташе, если мастер — Наташа
+            if master == 'Наташа':
+                try:
+                    context.bot.send_message(
+                        NATASHA_USERNAME,
+                        f"Новая запись:\nИмя: {context.user_data['name']}\nТелефон: {text}\nВремя: {appointment_time.strftime('%Y-%m-%d %H:%M')}"
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to notify Natasha: {e}")
         except Exception as e:
             logger.error(f"Error creating appointment: {e}")
             update.message.reply_text("Ошибка при создании записи. Попробуйте снова.")
