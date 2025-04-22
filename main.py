@@ -94,20 +94,24 @@ def message_handler(update: Update, context: CallbackContext):
             update.message.reply_text("Некорректный номер телефона. Попробуйте снова (например, +79991234567):")
             return
         context.user_data["phone"] = text
-        appointment_time = context.user_data["appointment_time"]
+        appointment_time = context.user_data.get("appointment_time")
         master = context.user_data.get("master")
-        if not master:
-            logger.error("Master not set in user_data")
-            update.message.reply_text("Ошибка: мастер не выбран. Пожалуйста, начните заново.")
+        if not appointment_time or not master:
+            logger.error(f"Invalid data: appointment_time={appointment_time}, master={master}")
+            update.message.reply_text("Ошибка: данные неполные. Пожалуйста, начните заново.")
             return
-        add_appointment(context.user_data["name"], text, appointment_time, master)
-        update.message.reply_text(
-            f"Запись успешно создана!\nИмя: {context.user_data['name']}\nТелефон: {text}\nМастер: {master}\nВремя: {appointment_time.strftime('%Y-%m-%d %H:%M')}"
-        )
-        context.bot.send_message(
-            OWNER_CHAT_ID,
-            f"Новая запись:\nИмя: {context.user_data['name']}\nТелефон: {text}\nМастер: {master}\nВремя: {appointment_time.strftime('%Y-%m-%d %H:%M')}"
-        )
+        try:
+            add_appointment(context.user_data["name"], text, appointment_time, master)
+            update.message.reply_text(
+                f"Запись успешно создана!\nИмя: {context.user_data['name']}\nТелефон: {text}\nМастер: {master}\nВремя: {appointment_time.strftime('%Y-%m-%d %H:%M')}"
+            )
+            context.bot.send_message(
+                OWNER_CHAT_ID,
+                f"Новая запись:\nИмя: {context.user_data['name']}\nТелефон: {text}\nМастер: {master}\nВремя: {appointment_time.strftime('%Y-%m-%d %H:%M')}"
+            )
+        except Exception as e:
+            logger.error(f"Error creating appointment: {e}")
+            update.message.reply_text("Ошибка при создании записи. Попробуйте снова.")
         context.user_data.clear()
 
 # Показ мастеров
@@ -204,6 +208,10 @@ def show_times(update: Update, context: CallbackContext):
                         f"{hour}:00", 
                         callback_data=f"time_{slot_time.strftime('%Y-%m-%d %H:%M')}"
                     )])
+            except psycopg2.OperationalError as e:
+                logger.error(f"Database error checking slot for {slot_time}, master {master}: {e}")
+                query.message.reply_text("Ошибка подключения к базе данных. Попробуйте позже.")
+                return
             except Exception as e:
                 logger.error(f"Error checking slot for {slot_time}, master {master}: {e}")
                 query.message.reply_text("Ошибка при проверке доступных слотов. Попробуйте снова.")
@@ -237,15 +245,19 @@ def admin(update: Update, context: CallbackContext):
     update.message.reply_text("Введите пароль админа:")
 
 def show_admin_menu(update: Update, context: CallbackContext):
-    appointments = get_all_appointments()
-    if not appointments:
-        update.message.reply_text("Записей нет.")
-        return
-    
-    response = "Список записей:\n"
-    for name, phone, time, master in appointments:
-        response += f"Имя: {name}, Телефон: {phone}, Мастер: {master}, Время: {time.strftime('%Y-%m-%d %H:%M')}\n"
-    update.message.reply_text(response)
+    try:
+        appointments = get_all_appointments()
+        if not appointments:
+            update.message.reply_text("Записей нет.")
+            return
+        
+        response = "Список записей:\n"
+        for name, phone, time, master in appointments:
+            response += f"Имя: {name}, Телефон: {phone}, Мастер: {master}, Время: {time.strftime('%Y-%m-%d %H:%M')}\n"
+        update.message.reply_text(response)
+    except Exception as e:
+        logger.error(f"Error in show_admin_menu: {e}")
+        update.message.reply_text("Ошибка при получении записей. Попробуйте снова.")
 
 # Обработка inline-кнопок
 def button_handler(update: Update, context: CallbackContext):
