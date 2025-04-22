@@ -26,7 +26,7 @@ def init_db():
         except psycopg2.OperationalError as e:
             print(f"Database connection attempt {attempt + 1} failed: {e}")
             if attempt < attempts - 1:
-                time.sleep(5)  # Ждем 5 секунд перед повторной попыткой
+                time.sleep(5)
             else:
                 raise Exception("Failed to connect to database after multiple attempts")
 

@@ -12,12 +12,11 @@ def validate_phone(phone):
 
 # Стартовое сообщение
 def start(update: Update, context: CallbackContext):
-    # Инициализация базы данных при первом вызове
-    # try:
-    #     init_db()
-    # except Exception as e:
-    #     update.message.reply_text(f"Ошибка подключения к базе данных: {e}")
-    #     return
+    try:
+        init_db()
+    except Exception as e:
+        update.message.reply_text(f"Ошибка подключения к базе данных: {e}")
+        return
     
     keyboard = [
         ["Записаться"],
