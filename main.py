@@ -4,11 +4,32 @@ from config import BOT_TOKEN, OWNER_CHAT_ID, ADMIN_PASSWORD
 from database import init_db, add_appointment, is_slot_taken, cancel_appointment, get_all_appointments
 from datetime import datetime, timedelta
 import re
+import calendar
 
 # Валидация номера телефона
 def validate_phone(phone):
     pattern = r'^(\+7|8)\d{10}$'
     return re.match(pattern, phone) is not None
+
+# Словарь для перевода дней недели на русский
+WEEKDAY_RU = {
+    'Monday': 'Понедельник',
+    'Tuesday': 'Вторник',
+    'Wednesday': 'Среда',
+    'Thursday': 'Четверг',
+    'Friday': 'Пятница',
+    'Saturday': 'Суббота',
+    'Sunday': 'Воскресенье'
+}
+
+# Словарь для русских названий месяцев
+MONTH_RU = {
+    1: 'Январь', 2: 'Февраль', 3: 'Март', 4: 'Апрель', 5: 'Май', 6: 'Июнь',
+    7: 'Июль', 8: 'Август', 9: 'Сентябрь', 10: 'Октябрь', 11: 'Ноябрь', 12: 'Декабрь'
+}
+
+# Список мастеров
+MASTERS = ['Наташа', 'Ваня']
 
 # Стартовое сообщение
 def start(update: Update, context: CallbackContext):
@@ -32,7 +53,7 @@ def start(update: Update, context: CallbackContext):
 def message_handler(update: Update, context: CallbackContext):
     text = update.message.text
     if text == "Записаться":
-        show_days(update, context)
+        show_masters(update, context)
     elif text == "Отменить запись":
         context.user_data["action"] = "cancel"
         update.message.reply_text("Введите ваш номер телефона (например, +79991234567):")
@@ -43,10 +64,11 @@ def message_handler(update: Update, context: CallbackContext):
             return
         result = cancel_appointment(phone)
         if result:
-            update.message.reply_text(f"Запись для {result[0]} успешно отменена.")
+            client_name, master = result
+            update.message.reply_text(f"Запись для {client_name} (мастер: {master}) успешно отменена.")
             context.bot.send_message(
                 OWNER_CHAT_ID, 
-                f"Клиент {result[0]} ({phone}) отменил запись."
+                f"Клиент {client_name} ({phone}) отменил запись у мастера {master}."
             )
         else:
             update.message.reply_text("Запись с таким номером не найдена.")
@@ -67,28 +89,72 @@ def message_handler(update: Update, context: CallbackContext):
             return
         context.user_data["phone"] = text
         appointment_time = context.user_data["appointment_time"]
-        add_appointment(context.user_data["name"], text, appointment_time)
+        master = context.user_data["master"]
+        add_appointment(context.user_data["name"], text, appointment_time, master)
         update.message.reply_text(
-            f"Запись успешно создана!\nИмя: {context.user_data['name']}\nТелефон: {text}\nВремя: {appointment_time.strftime('%Y-%m-%d %H:%M')}"
+            f"Запись успешно создана!\nИмя: {context.user_data['name']}\nТелефон: {text}\nМастер: {master}\nВремя: {appointment_time.strftime('%Y-%m-%d %H:%M')}"
         )
         context.bot.send_message(
             OWNER_CHAT_ID,
-            f"Новая запись:\nИмя: {context.user_data['name']}\nТелефон: {text}\nВремя: {appointment_time.strftime('%Y-%m-%d %H:%M')}"
+            f"Новая запись:\nИмя: {context.user_data['name']}\nТелефон: {text}\nМастер: {master}\nВремя: {appointment_time.strftime('%Y-%m-%d %H:%M')}"
         )
         context.user_data.clear()
 
-# Выбор дня
-def show_days(update: Update, context: CallbackContext):
-    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+# Показ мастеров
+def show_masters(update: Update, context: CallbackContext):
+    keyboard = [[InlineKeyboardButton(master, callback_data=f"master_{master}")] for master in MASTERS]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    update.message.reply_text("Выберите мастера:", reply_markup=reply_markup)
+
+# Показ месяцев
+def show_months(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+    master = query.data.split("_")[1] if query.data.startswith("master_") else context.user_data.get("master")
+    context.user_data["master"] = master
+    today = datetime.now()
     keyboard = []
-    for i in range(7):
-        day = today + timedelta(days=i)
+    for i in range(12):  # 12 месяцев вперед
+        month_date = today + timedelta(days=30*i)
+        year = month_date.year
+        month = month_date.month
+        month_name = MONTH_RU.get(month, f"Месяц {month}")
+        button_text = f"{month_name} {year}"
         keyboard.append([InlineKeyboardButton(
-            day.strftime("%Y-%m-%d (%A)"), 
-            callback_data=f"day_{day.strftime('%Y-%m-%d')}"
+            button_text,
+            callback_data=f"month_{year}-{month:02d}"
         )])
     reply_markup = InlineKeyboardMarkup(keyboard)
-    update.message.reply_text("Выберите день:", reply_markup=reply_markup)
+    query.message.reply_text("Выберите месяц:", reply_markup=reply_markup)
+
+# Показ дней в месяце
+def show_days_in_month(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+    year, month = map(int, query.data.split("_")[1].split("-"))
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    _, last_day = calendar.monthrange(year, month)
+    keyboard = []
+    
+    for day in range(1, last_day + 1):
+        date = datetime(year, month, day)
+        if date < today:
+            continue
+        weekday_en = date.strftime("%A")
+        weekday_ru = WEEKDAY_RU.get(weekday_en, weekday_en)
+        button_text = f"{date.strftime('%Y-%m-%d')} ({weekday_ru})"
+        keyboard.append([InlineKeyboardButton(
+            button_text,
+            callback_data=f"day_{date.strftime('%Y-%m-%d')}"
+        )])
+    
+    if not keyboard:
+        query.message.reply_text("Нет доступных дней в этом месяце. Выберите другой месяц.")
+        show_months(update, context)
+        return
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    query.message.reply_text(f"Выберите день в {MONTH_RU.get(month, f'Месяц {month}')} {year}:", reply_markup=reply_markup)
 
 # Выбор времени
 def show_times(update: Update, context: CallbackContext):
@@ -96,12 +162,13 @@ def show_times(update: Update, context: CallbackContext):
     query.answer()
     day_str = query.data.split("_")[1]
     selected_day = datetime.strptime(day_str, "%Y-%m-%d")
+    master = context.user_data["master"]
     keyboard = []
     current_time = datetime.now()
     
     for hour in range(9, 21):
         slot_time = selected_day.replace(hour=hour, minute=0)
-        if slot_time > current_time and not is_slot_taken(slot_time):
+        if slot_time > current_time and not is_slot_taken(slot_time, master):
             keyboard.append([InlineKeyboardButton(
                 f"{hour}:00", 
                 callback_data=f"time_{slot_time.strftime('%Y-%m-%d %H:%M')}"
@@ -109,11 +176,11 @@ def show_times(update: Update, context: CallbackContext):
     
     if not keyboard:
         query.message.reply_text("Нет доступных слотов на этот день. Выберите другой день.")
-        show_days(query, context)
+        show_days_in_month(update, context)
         return
     
     reply_markup = InlineKeyboardMarkup(keyboard)
-    query.message.reply_text("Выберите время:", reply_markup=reply_markup)
+    query.message.reply_text(f"Выберите время для мастера {master}:", reply_markup=reply_markup)
 
 # Подтверждение времени и ввод имени
 def confirm_time(update: Update, context: CallbackContext):
@@ -136,14 +203,18 @@ def show_admin_menu(update: Update, context: CallbackContext):
         return
     
     response = "Список записей:\n"
-    for name, phone, time in appointments:
-        response += f"Имя: {name}, Телефон: {phone}, Время: {time.strftime('%Y-%m-%d %H:%M')}\n"
+    for name, phone, time, master in appointments:
+        response += f"Имя: {name}, Телефон: {phone}, Мастер: {master}, Время: {time.strftime('%Y-%m-%d %H:%M')}\n"
     update.message.reply_text(response)
 
 # Обработка inline-кнопок
 def button_handler(update: Update, context: CallbackContext):
     query = update.callback_query
-    if query.data.startswith("day_"):
+    if query.data.startswith("master_"):
+        show_months(update, context)
+    elif query.data.startswith("month_"):
+        show_days_in_month(update, context)
+    elif query.data.startswith("day_"):
         show_times(update, context)
     elif query.data.startswith("time_"):
         confirm_time(update, context)

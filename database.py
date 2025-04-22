@@ -15,6 +15,7 @@ def init_db():
                     client_name VARCHAR(100),
                     client_phone VARCHAR(20),
                     appointment_time TIMESTAMP,
+                    master VARCHAR(50),  -- Новое поле для мастера
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
@@ -30,23 +31,23 @@ def init_db():
             else:
                 raise Exception("Failed to connect to database after multiple attempts")
 
-def add_appointment(name, phone, appointment_time):
+def add_appointment(name, phone, appointment_time, master):
     conn = psycopg2.connect(DATABASE_URL)
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO appointments (client_name, client_phone, appointment_time) VALUES (%s, %s, %s)",
-        (name, phone, appointment_time)
+        "INSERT INTO appointments (client_name, client_phone, appointment_time, master) VALUES (%s, %s, %s, %s)",
+        (name, phone, appointment_time, master)
     )
     conn.commit()
     cursor.close()
     conn.close()
 
-def is_slot_taken(appointment_time):
+def is_slot_taken(appointment_time, master):
     conn = psycopg2.connect(DATABASE_URL)
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT 1 FROM appointments WHERE appointment_time = %s",
-        (appointment_time,)
+        "SELECT 1 FROM appointments WHERE appointment_time = %s AND master = %s",
+        (appointment_time, master)
     )
     result = cursor.fetchone()
     cursor.close()
@@ -57,19 +58,19 @@ def cancel_appointment(phone):
     conn = psycopg2.connect(DATABASE_URL)
     cursor = conn.cursor()
     cursor.execute(
-        "DELETE FROM appointments WHERE client_phone = %s RETURNING client_name",
+        "DELETE FROM appointments WHERE client_phone = %s RETURNING client_name, master",
         (phone,)
     )
     result = cursor.fetchone()
     conn.commit()
     cursor.close()
     conn.close()
-    return result
+    return result  # Возвращает (client_name, master) или None
 
 def get_all_appointments():
     conn = psycopg2.connect(DATABASE_URL)
     cursor = conn.cursor()
-    cursor.execute("SELECT client_name, client_phone, appointment_time FROM appointments ORDER BY appointment_time")
+    cursor.execute("SELECT client_name, client_phone, appointment_time, master FROM appointments ORDER BY appointment_time")
     appointments = cursor.fetchall()
     cursor.close()
     conn.close()
